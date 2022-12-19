@@ -4,9 +4,9 @@
 #include <chrono>
 #include <omp.h>
 
-const int matrix_size = 1500;
+const int matrix_size = 2000;
 const int num_threads = 8;
-const int num_of_tries = 5;
+const int num_of_tries = 15;
 
 class Timer {
     typedef std::chrono::high_resolution_clock clock_;
@@ -81,8 +81,10 @@ void printMatrix(double** A) {
     }
 }
 
-// Algorithms for LU decomposition, different variations
-
+/*-----------------------------
+Crout algorithm for LU decomposition
+-----------------------------*/
+// Sequential version of Crout algorithm
 void crout_0(double** A, double** L, double** U, int n) {
     int i, j, k;
     double sum = 0;
@@ -110,6 +112,7 @@ void crout_0(double** A, double** L, double** U, int n) {
     }
 }
 
+// Parallel version of Crout algorithm
 void crout_1(double** A, double** L, double** U, int n) {
     int i, j, k;
     double sum = 0;
@@ -144,156 +147,9 @@ void crout_1(double** A, double** L, double** U, int n) {
     
 }
 
-void crout_2(double** A, double** L, double** U, int n) {
-    int i, j, k;
-    double sum = 0;
-    for (i = 0; i < n; i++) {
-        U[i][i] = 1;
-    }
-    for (j = 0; j < n; j++) {
-        //i=j case
-        sum = 0;
-        for (k = 0; k < j; k++) {
-            sum = sum + L[j][k] * U[k][j];
-        }
-        L[j][j] = A[j][j] - sum;
-        int x = j + (n - j) / 2;
-#pragma omp parallel sections
-        {
-#pragma omp section
-            {
-                for (int i = j + 1; i < x; i++) {
-                    double sum = 0;
-                    for (int k = 0; k < j; k++) {
-                        sum = sum + L[i][k] * U[k][j];
-                    }
-                    L[i][j] = A[i][j] - sum;
-                }
-            }
-#pragma omp section
-            {
-                for (int i = x; i < n; i++) {
-                    double sum = 0;
-                    for (int k = 0; k < j; k++) {
-                        sum = sum + L[i][k] * U[k][j];
-                    }
-                    L[i][j] = A[i][j] - sum;
-                }
-
-            }
-#pragma omp section
-            {
-                for (int i = j; i < x; i++) {
-                    double sum = 0;
-                    for (int k = 0; k < j; k++) {
-                        sum = sum + L[j][k] * U[k][i];
-                    }
-                    if (L[j][j] == 0) {
-                        exit(0);
-                    }
-                    U[j][i] = (A[j][i] - sum) / L[j][j];
-                }
-            }
-#pragma omp section
-            {
-                for (int i = x; i < n; i++) {
-                    double sum = 0;
-                    for (int k = 0; k < j; k++) {
-                        sum = sum + L[j][k] * U[k][i];
-                    }
-                    if (L[j][j] == 0) {
-                        exit(0);
-                    }
-                    U[j][i] = (A[j][i] - sum) / L[j][j];
-                }
-            }
-        }
-    }
-
-}
-
-void crout_4(double** m, double** l, double** u, int size) {
-    int i = 0, j = 0, k = 0;
-    double factor;
-
-#pragma omp for 
-
-    for (j = 0; j < size - 1; j++) {
-        for (i = j + 1; i < size; i++) {
-            factor = m[i][j] / m[j][j];
-            for (k = 0; k < size; k++) {
-                u[i][k] = m[i][k] - (m[j][k] * factor);
-            }
-            l[i][j] = factor;
-        }
-        //matrix copy m = u
-        for (i = 0; i < size; i++) {
-            for (k = 0; k < size; k++) {
-                m[i][k] = u[i][k];
-            }
-        }
-        //copy end
-    }
-    //freeMatrix(mat);
-    for (i = 0; i < size; i++) {
-        l[i][i] = 1;
-    }
-}
-
-void crout_6(double** a, double** l, double** u, int size, int chunkSize = 16) {
-#pragma omp parallel shared(a,l,u)
-    {
-        for (int i = 0; i < size; i++)
-        {
-            //for each row....
-            //rows are split into seperate threads for processing
-#pragma omp for schedule(dynamic, chunkSize)
-            for (int j = 0; j < size; j++)
-            {
-                //if j is smaller than i, set l[j][i] to 0
-                if (j < i)
-                {
-                    l[j][i] = 0;
-                    continue;
-                }
-                //otherwise, do some math to get the right value
-                l[j][i] = a[j][i];
-                for (int k = 0; k < i; k++)
-                {
-                    //deduct from the current l cell the value of these 2 values multiplied
-                    l[j][i] = l[j][i] - l[j][k] * u[k][i];
-                }
-            }
-            //for each row...
-            //rows are split into seperate threads for processing
-#pragma omp for schedule(dynamic, chunkSize)
-            for (int j = 0; j < size; j++)
-            {
-                //if j is smaller than i, set u's current index to 0
-                if (j < i)
-                {
-                    u[i][j] = 0;
-                    continue;
-                }
-                //if they're equal, set u's current index to 1
-                if (j == i)
-                {
-                    u[i][j] = 1;
-                    continue;
-                }
-                //otherwise, do some math to get the right value
-                u[i][j] = a[i][j] / l[i][i];
-                for (int k = 0; k < i; k++)
-                {
-                    u[i][j] = u[i][j] - ((l[i][k] * u[k][j]) / l[i][i]);
-                }
-            }
-        }
-    }
-}
-
-
-// Testing methods
+/*-----------------------------
+Void methods used for testing sequential and parallel Crout algorithm
+-----------------------------*/
 
 void testCroutSequencial(double** A, int n) {
     double** L = generateMatrixLU();
@@ -321,45 +177,6 @@ void testCroutParallel1(double** A, int n) {
     deallocateMemory(U);
 }
 
-void testCroutParallel2(double** A, int n) {
-    double** L = generateMatrixLU();
-    double** U = generateMatrixLU();
-
-    {
-        Timer t("PARALLEL 2");
-        crout_2(A, L, U, n);
-    }
-
-    deallocateMemory(L);
-    deallocateMemory(U);
-}
-
-void testCroutParallel4(double** A, int n) {
-    double** L = generateMatrixLU();
-    double** U = generateMatrixLU();
-
-    {
-        Timer t("PARALLEL 4");
-        crout_4(A, L, U, n);
-    }
-
-    deallocateMemory(L);
-    deallocateMemory(U);
-}
-
-void testCroutParallel6(double** A, int n) {
-    double** L = generateMatrixLU();
-    double** U = generateMatrixLU();
-
-    {
-        Timer t("PARALLEL 6");
-        crout_6(A, L, U, n);
-    }
-
-    deallocateMemory(L);
-    deallocateMemory(U);
-}
-
 int main()
 {
     double** A = generateMatrixA();
@@ -378,8 +195,6 @@ int main()
 
         std::cout << "TRY " << i + 1 << ":" << std::endl;
         testCroutParallel1(A, matrix_size);
-        //testCroutParallel2(A, matrix_size);
-
         std::cout << std::endl;
     }
     deallocateMemory(A);
