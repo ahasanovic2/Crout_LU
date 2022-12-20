@@ -5,7 +5,7 @@
 #include <omp.h>
 
 const int NUM_OF_TRIES = 3;
-const int MATRIX_SIZE = 250;
+const int MATRIX_SIZE = 200;
 const int NUM_OF_THREADS = 2;
 
 class Timer {
@@ -147,7 +147,7 @@ int crout_1_runtime(double** A, double** L, double** U, int n) {
     return 1;
 }
 
-int crout_1_runtime(double** A, double** L, double** U, int n) {
+int crout_1_dynamic(double** A, double** L, double** U, int n) {
     int i, j, k;
     double sum = 0;
 #pragma omp parallel for
@@ -155,39 +155,6 @@ int crout_1_runtime(double** A, double** L, double** U, int n) {
         U[i][i] = 1;
     }
 #pragma omp parallel for private(i,j,k,sum) schedule(dynamic)
-    for (j = 0; j < n; j++) {
-        if (j == n - 1)
-            std::cout << "Number of threads being used: " << omp_get_num_threads() << std::endl;
-        for (i = j; i < n; i++) {
-            sum = 0;
-            for (k = 0; k < j; k++) {
-                sum = sum + L[i][k] * U[k][j];
-            }
-            L[i][j] = A[i][j] - sum;
-        }
-        for (i = j; i < n; i++) {
-            sum = 0;
-            for (k = 0; k < j; k++) {
-                sum = sum + L[j][k] * U[k][i];
-            }
-            if (L[j][j] == 0) {
-                std::cout << "Matrix is singular! " << std::endl;
-                exit(0);
-            }
-            U[j][i] = (A[j][i] - sum) / L[j][j];
-        }
-    }
-    return 1;
-}
-
-int crout_1_static(double** A, double** L, double** U, int n) {
-    int i, j, k;
-    double sum = 0;
-#pragma omp parallel for
-    for (i = 0; i < n; i++) {
-        U[i][i] = 1;
-    }
-#pragma omp parallel for private(i,j,k,sum) schedule(static)
     for (j = 0; j < n; j++) {
         if (j == n - 1)
             std::cout << "Number of threads being used: " << omp_get_num_threads() << std::endl;
@@ -367,19 +334,6 @@ void testCroutParallel_dynamic(double** A, int n) {
     {
         Timer t("DYNAMIC CROUT 1");
         crout_1_dynamic(A, L, U, n);
-    }
-
-    deallocateMemory(L);
-    deallocateMemory(U);
-}
-
-void testCroutParallel1_static(double** A, int n) {
-    double** L = generateMatrixLU();
-    double** U = generateMatrixLU();
-
-    {
-        Timer t("PARALLEL 1 with static scheduling");
-        crout_1_static(A, L, U, n);
     }
 
     deallocateMemory(L);
