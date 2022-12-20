@@ -4,9 +4,9 @@
 #include <chrono>
 #include <omp.h>
 
-const int NUM_OF_TRIES = 15;
-const int MATRIX_SIZE = 500;
-const int NUM_OF_THREADS = 8;
+const int NUM_OF_TRIES = 3;
+const int MATRIX_SIZE = 250;
+const int NUM_OF_THREADS = 2;
 
 class Timer {
     typedef std::chrono::high_resolution_clock clock_;
@@ -85,7 +85,7 @@ void printMatrix(double** A) {
 Crout algorithm for LU decomposition
 -----------------------------*/
 // Sequential version of Crout algorithm
-void crout_0(double** A, double** L, double** U, int n) {
+int crout_0(double** A, double** L, double** U, int n) {
     int i, j, k;
     double sum = 0;
     for (i = 0; i < n; i++) {
@@ -105,22 +105,23 @@ void crout_0(double** A, double** L, double** U, int n) {
                 sum = sum + L[j][k] * U[k][i];
             }
             if (L[j][j] == 0) {
-                exit(0);
+                return 0;
             }
             U[j][i] = (A[j][i] - sum) / L[j][j];
         }
     }
+    return 1;
 }
 
 // Parallel version of Crout algorithm
-void crout_1(double** A, double** L, double** U, int n) {
+int crout_1_runtime(double** A, double** L, double** U, int n) {
     int i, j, k;
     double sum = 0;
 #pragma omp parallel for
     for (i = 0; i < n; i++) {
         U[i][i] = 1;
     }
-#pragma omp parallel for private(i,j,k,sum) schedule(dynamic, 8)
+#pragma omp parallel for private(i,j,k,sum) schedule(runtime)
     for (j = 0; j < n; j++) {
         if (j == n - 1)
             std::cout << "Number of threads being used: " << omp_get_num_threads() << std::endl;
@@ -137,12 +138,46 @@ void crout_1(double** A, double** L, double** U, int n) {
                 sum = sum + L[j][k] * U[k][i];
             }
             if (L[j][j] == 0) {
+                std::cout << "Matrix is singular! " << std::endl;
                 exit(0);
             }
             U[j][i] = (A[j][i] - sum) / L[j][j];
         }
     }
+    return 1;
+}
 
+int crout_1_static(double** A, double** L, double** U, int n) {
+    int i, j, k;
+    double sum = 0;
+#pragma omp parallel for
+    for (i = 0; i < n; i++) {
+        U[i][i] = 1;
+    }
+#pragma omp parallel for private(i,j,k,sum) schedule(static)
+    for (j = 0; j < n; j++) {
+        if (j == n - 1)
+            std::cout << "Number of threads being used: " << omp_get_num_threads() << std::endl;
+        for (i = j; i < n; i++) {
+            sum = 0;
+            for (k = 0; k < j; k++) {
+                sum = sum + L[i][k] * U[k][j];
+            }
+            L[i][j] = A[i][j] - sum;
+        }
+        for (i = j; i < n; i++) {
+            sum = 0;
+            for (k = 0; k < j; k++) {
+                sum = sum + L[j][k] * U[k][i];
+            }
+            if (L[j][j] == 0) {
+                std::cout << "Matrix is singular! " << std::endl;
+                exit(0);
+            }
+            U[j][i] = (A[j][i] - sum) / L[j][j];
+        }
+    }
+    return 1;
 }
 
 /*-----------------------------
@@ -151,7 +186,7 @@ Partial pivoting algorithm for LU decomposition
 
 static double matrix[MATRIX_SIZE][MATRIX_SIZE];
 static double matrix_p[MATRIX_SIZE][MATRIX_SIZE];
-const double epsilon = 1e-10;
+const double epsilon = 1e-5;
 static int perm[MATRIX_SIZE];
 static int perm_p[MATRIX_SIZE];
 
@@ -266,20 +301,52 @@ void testCroutSequencial(double** A, int n) {
 
     {
         Timer t("SEQUENTIAL");
-        crout_0(A, L, U, n);
+        int rj = crout_0(A, L, U, n);
+        if (rj) {
+            std::cout << "Successful!" << std::endl;
+        }
+        else {
+            std::cout << "Matrix is singular!" << std::endl;
+        }
     }
 
     deallocateMemory(L);
     deallocateMemory(U);
 }
 
-void testCroutParallel1(double** A, int n) {
+void testCroutParallel_runtime(double** A, int n) {
     double** L = generateMatrixLU();
     double** U = generateMatrixLU();
 
     {
-        Timer t("PARALLEL 1");
-        crout_1(A, L, U, n);
+        Timer t("RUNTIME CROUT 1");
+        crout_1_runtime(A, L, U, n);
+    }
+
+    deallocateMemory(L);
+    deallocateMemory(U);
+}
+
+void testCroutParallel_dynamic(double** A, int n) {
+    double** L = generateMatrixLU();
+    double** U = generateMatrixLU();
+
+    {
+        Timer t("DYNAMIC CROUT 1");
+        crout_1_runtime(A, L, U, n);
+    }
+
+    deallocateMemory(L);
+    deallocateMemory(U);
+}
+
+void testCroutParallel1_static(double** A, int n) {
+    double** L = generateMatrixLU();
+    double** U = generateMatrixLU();
+
+    {
+        Timer t("PARALLEL 1 with static scheduling");
+        crout_1_static(A, L, U, n);
     }
 
     deallocateMemory(L);
@@ -325,15 +392,13 @@ void test_partial_pivoting_parallel() {
             std::cout << e.what() << std::endl;
         }
     }
-
-
 }
 
 /*-----------------------------
 Separate methods for testing Crout and Partial pivoting algorithm
 -----------------------------*/
 
-void test_crout() {
+void test_crout_runtime() {
     double** A = generateMatrixA();
 
     testCroutSequencial(A, MATRIX_SIZE);
@@ -349,9 +414,69 @@ void test_crout() {
     for (int i = 0; i < NUM_OF_TRIES; i++) {
 
         std::cout << "TRY " << i + 1 << ":" << std::endl;
-        testCroutParallel1(A, MATRIX_SIZE);
+        testCroutParallel_runtime(A, MATRIX_SIZE);
         std::cout << std::endl;
     }
+    
+    omp_set_num_threads(NUM_OF_THREADS*2);
+
+    for (int i = 0; i < NUM_OF_TRIES; i++) {
+
+        std::cout << "TRY " << i + 1 << ":" << std::endl;
+        testCroutParallel_runtime(A, MATRIX_SIZE);
+        std::cout << std::endl;
+    }
+    
+    omp_set_num_threads(NUM_OF_THREADS*4);
+
+    for (int i = 0; i < NUM_OF_TRIES; i++) {
+
+        std::cout << "TRY " << i + 1 << ":" << std::endl;
+        testCroutParallel_runtime(A, MATRIX_SIZE);
+        std::cout << std::endl;
+    }
+
+    deallocateMemory(A);
+}
+
+void test_crout_dynamic() {
+    double** A = generateMatrixA();
+
+    testCroutSequencial(A, MATRIX_SIZE);
+
+    std::cout << std::endl;
+
+    std::cout << "Maximum number of threads on current device: " << omp_get_max_threads() << std::endl;
+    std::cout << "Matrix size: " << MATRIX_SIZE << "x" << MATRIX_SIZE << std::endl;
+
+    omp_set_dynamic(0);
+    omp_set_num_threads(NUM_OF_THREADS);
+
+    for (int i = 0; i < NUM_OF_TRIES; i++) {
+
+        std::cout << "TRY " << i + 1 << ":" << std::endl;
+        testCroutParallel_dynamic(A, MATRIX_SIZE);
+        std::cout << std::endl;
+    }
+
+    omp_set_num_threads(NUM_OF_THREADS * 2);
+
+    for (int i = 0; i < NUM_OF_TRIES; i++) {
+
+        std::cout << "TRY " << i + 1 << ":" << std::endl;
+        testCroutParallel_dynamic(A, MATRIX_SIZE);
+        std::cout << std::endl;
+    }
+
+    omp_set_num_threads(NUM_OF_THREADS * 4);
+
+    for (int i = 0; i < NUM_OF_TRIES; i++) {
+
+        std::cout << "TRY " << i + 1 << ":" << std::endl;
+        testCroutParallel_dynamic(A, MATRIX_SIZE);
+        std::cout << std::endl;
+    }
+
     deallocateMemory(A);
 }
 
@@ -359,27 +484,15 @@ void test_pivot() {
     fill_matrices();
     test_partial_pivoting_sequential();
     test_partial_pivoting_parallel();
-
-
-    for (int i = 0; i < 5; i++) {
-        for (int j = 0; j < 4; j++) {
-            std::cout << matrix[i][j] << ", ";
-        }
-        std::cout << matrix[i][4] << std::endl;
-    }
-    std::cout << std::endl;
-    for (int i = 0; i < 5; i++) {
-        for (int j = 0; j < 4; j++) {
-            std::cout << matrix_p[i][j] << ", ";
-        }
-        std::cout << matrix_p[i][4] << std::endl;
-    }
 }
 
 int main()
 {
-    test_crout();
     //test_pivot();
+    std::cout << "RUNTIME SCHEDULING: " << std::endl;
+    test_crout_runtime();
+    std::cout << "DYNAMIC SCHEDULING: " << std::endl;
+    test_crout_dynamic();
     return 0;
 
 }
