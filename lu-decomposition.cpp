@@ -11,7 +11,7 @@ using std::cout;
 using namespace Eigen;
 
 const int NUM_OF_TRIES = 3;
-const int MATRIX_SIZE = 5000;
+const int MATRIX_SIZE = 1000;
 const int NUM_OF_THREADS = 2;
 
 class Timer {
@@ -234,42 +234,30 @@ void makeSymmetric(double** A, int n) {
 }
 
 bool is_positive_definite(double** A, int n) {
-    //Eigen::Map<Eigen::MatrixXd> M(A[0], n, n);
-    //SelfAdjointEigenSolver<Matrix3d> eig(M);
-    //Vector3d eigenvalues = eig.eigenvalues();
-    //cout << "Eigenvalues are: ";
-    ///*for (int i = 0; i < n; i++)
-    //    cout << eigenvalues[i] << ", ";
-    //cout << endl;*/
-    //for (int i = 0; i < n; i++)
-    //    if (eigenvalues[i] <= 0)
-    //        return false;
-    //return true;
+    double* array = (double*)malloc(n * n * sizeof(double));
 
-    double* eigenvalues = (double*)calloc(n, sizeof(double));
-    double* P = (double*)calloc(n+1, sizeof(double));
-    P[0] = -1;
+    // Set some values in the array
     for (int i = 0; i < n; i++) {
-        P[i + 1] = 0;
         for (int j = 0; j < n; j++) {
-            P[i + 1] -= A[j][i] * A[j][i];
+            array[i * n + j] = A[i][j];
         }
     }
-    for (int i = 0; i < n; i++) {
-        eigenvalues[i] = 0;
-        for (int j = 0; j < i + 1; j++) {
-            eigenvalues[i] += P[j] * pow(eigenvalues[i], i - j);
-        }
-    }
-    for (int i = 0; i < n; i++)
-        cout << eigenvalues[i] << ", ";
+
+    // Create a 3x3 matrix "view" of the array using the Map class
+    Map<Matrix<double, Dynamic, Dynamic, RowMajor>> mat(array, n, n);
+
+    // Compute the eigenvalues of the matrix
+    SelfAdjointEigenSolver<Matrix<double, Dynamic, Dynamic, RowMajor>> eig(mat);
+    VectorXd eigenvalues = eig.eigenvalues();
+
+    // Check if any of eigenvalues is negative
     bool povrat = true;
     for (int i = 0; i < n; i++)
         if (eigenvalues[i] <= 0)
             povrat = false;
-    
-    free(eigenvalues);
-    free(P);
+
+    // Free the memory allocated with malloc()
+    free(array);
     return povrat;
 }
 
@@ -307,7 +295,7 @@ void test_cholesky1 (int n) {
     makeSymmetric(A, n);
     {
         Timer t("Check if matrix is positive definite");
-        cout << "Matrix is " << (is_positive_definite(A, n) ? "not" : "") << "positive definite" << endl;
+        cout << "Matrix is" << (is_positive_definite(A, n) ? " " : " not ") << "positive definite" << endl;
     }
     {
         Timer t("CHOLESKY 1 SEQUENTIAL");
@@ -323,7 +311,7 @@ void test_cholesky1 (int n) {
 }
 
 double* generate_matrix(int n) {
-    double* A = (double*)calloc(n * n, sizeof(double));
+    double* A = (double*)malloc(n * n * sizeof(double));
     std::random_device rd;
     std::default_random_engine generator(rd());
     std::uniform_real_distribution<double> distribution(1, 1000);
@@ -344,17 +332,24 @@ void makeSymmetric2(double* A, int n) {
 }
 
 bool is_positive_definite2(double* A, int n) {
-    Matrix3d M = Map<Matrix3d>(A, n, n);
-    SelfAdjointEigenSolver<Matrix3d> eigensolver(M);
-    Vector3d eigenvalues = eigensolver.eigenvalues();
+    // Create a 3x3 matrix "view" of the array using the Map class
+    Map<Matrix<double, Dynamic, Dynamic, RowMajor>> mat(A,n,n);
+
+    // Compute the eigenvalues of the matrix
+    SelfAdjointEigenSolver<Matrix<double, Dynamic, Dynamic, RowMajor>> eig(mat);
+    VectorXd eigenvalues = eig.eigenvalues();
+
+    // Check if any of eigenvalues is negative
+    bool povrat = true;
     for (int i = 0; i < n; i++)
         if (eigenvalues[i] <= 0)
-            return false;
-    return true;
+            povrat = false;
+
+    return povrat;
 }
 
 double* cholesky2_parallel(double* A, int n) {
-    double* L = (double*)calloc(n * n, sizeof(double));
+    double* L = (double*)malloc(n * n * sizeof(double));
     if (L == NULL)
         exit(EXIT_FAILURE);
 
@@ -377,7 +372,7 @@ double* cholesky2_parallel(double* A, int n) {
 }
 
 double* cholesky2_sequential(double* A, int n) {
-    double* L = (double*)calloc(n * n, sizeof(double));
+    double* L = (double*)malloc(n * n * sizeof(double));
     if (L == NULL)
         exit(EXIT_FAILURE);
 
@@ -398,7 +393,7 @@ void test_cholesky2(int n) {
     makeSymmetric2(A, n);
     {
         Timer t("Check if matrix is positive definite");
-        cout << "Matrix is " << (is_positive_definite2(A, n) ? "not" : "") << "positive definite" << endl;
+        cout << "Matrix is" << (is_positive_definite2(A, n) ? " " : " not ") << "positive definite" << endl;
     }
     {
         Timer t("CHOLESKY 2 SEQUENTIAL");
@@ -417,7 +412,7 @@ void test_cholesky2(int n) {
 // ------------------------------ LDLT ------------------------------ //
 
 double* generate_help_array(int n) {
-    double* l = (double*)calloc(n, sizeof(double));
+    double* l = (double*)malloc(n * sizeof(double));
     for (int i = 0; i < n; i++)
         l[i] = 0;
     return l;
@@ -507,75 +502,19 @@ void test_ldlt1(int n) {
 
 // ------------------------------------------------------------------ //
 
-void test() {
-    int x = 3;
-    double** A = (double**)malloc(sizeof(double*) * x);
-    for (int i = 0; i < x; i++) {
-        A[i] = (double*)malloc(sizeof(double) * x);
-    }
-    A[0][0] = 1;
-    A[0][1] = 2;
-    A[0][2] = 3;
-    A[1][0] = 4;
-    A[1][1] = 5;
-    A[1][2] = 6;
-    A[2][0] = 7;
-    A[2][1] = 8;
-    A[2][2] = 9;
-
-    double** L = (double**)malloc(sizeof(double*) * x);
-    for (int i = 0; i < x; i++) {
-        L[i] = (double*)malloc(sizeof(double) * x);
-    }
-
-    L[0][0] = 0;
-    L[0][1] = 0;
-    L[0][2] = 0;
-    L[1][0] = 0;
-    L[1][1] = 0;
-    L[1][2] = 0;
-    L[2][0] = 0;
-    L[2][1] = 0;
-    L[2][2] = 0;
-
-    printMatrix(A, x);
-    cout << "Matrix is " << (is_positive_definite(A, x) ? "" : "not") << " positive definite" << endl;
-    cholesky1_sequential(A, L, x);
-    printMatrix(L, x);
-    deallocateMemory(A,x);
-    deallocateMemory(L,x);
-}
-
-void test2() {
-    // Define a 3x3 matrix
-    //double A[3][3] = { {1, 2, 3}, {4, 5, 6}, {7, 8, 9} };
-
-    Eigen::Matrix<double, 3, 3> A; // declare a real (double) 2x2 matrix
-    A << 25,15,-5,15,18,0,-5,0,11; // defined the matrix A
-
-    Eigen::EigenSolver<Eigen::Matrix<double, 3, 3> > s(A); // the instance s(A) includes the eigensystem
-    std::cout << A << std::endl;
-    std::cout << "eigenvalues:" << std::endl;
-    std::cout << s.eigenvalues()(0) << std::endl;
-    std::cout << s.eigenvalues()(1) << std::endl;
-    std::cout << s.eigenvalues()(2) << std::endl;
-    std::cout << s.eigenvalues()(2).real() << std::endl;
-    std::cout << "eigenvectors=" << std::endl;
-    std::cout << s.eigenvectors() << std::endl;
-}
-
 int main()
 {
-    //cout << "Insert number of rows for matrix: ";
-    //int broj;
-    //std::cin >> broj;
+    cout << "Insert number of rows for matrix: ";
+    int broj;
+    std::cin >> broj;
     //test_cholesky1(broj);
     //test_cholesky2(broj);
     //crout_test(broj);
     //test_ldlt1(broj);
 
     //test();
-    test2();
+    //test3();
+    //test_fine(3); 
     return 0;
 
 }
