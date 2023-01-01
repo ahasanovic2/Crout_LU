@@ -386,23 +386,6 @@ void test_cholesky2(int n) {
 
 int main()
 {
-    /*int n;
-    do {
-        std::cout << "Insert a number that will be dimension for square matrix: ";
-        std::cin >> n;
-        if (n != 0) {
-            std::cout << "STATIC SCHEDULING: " << std::endl;
-            test_crout_dynamic(n);
-        }
-    } while (n != 0);*/
-
-    /*Eigen::Matrix2d A;
-    A << 2, 1,
-        1, 3;
-    if (A == A.transpose())
-        cout << "Jeste simetricna" << endl;
-    else
-        cout << "Nije simetricna" << endl;*/
     cout << "Insert number of rows for matrix: ";
     int broj;
     std::cin >> broj;
