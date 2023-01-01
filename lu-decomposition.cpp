@@ -33,13 +33,13 @@ public:
     }
 };
 
-void printMatrix(double** A) {
+void printMatrix(double** A, int n) {
     std::cout << "Matrix elements are: " << std::endl;
-    for (int i = 0; i < MATRIX_SIZE; i++) {
-        for (int j = 0; j < MATRIX_SIZE - 1; j++) {
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n - 1; j++) {
             std::cout << A[i][j] << ", ";
         }
-        std::cout << A[i][MATRIX_SIZE - 1] << std::endl;
+        std::cout << A[i][n - 1] << std::endl;
     }
 }
 
@@ -234,13 +234,43 @@ void makeSymmetric(double** A, int n) {
 }
 
 bool is_positive_definite(double** A, int n) {
-    Eigen::Map<Eigen::MatrixXd> M(A[0], n, n);
-    SelfAdjointEigenSolver<Matrix3d> eigensolver(M);
-    Vector3d eigenvalues = eigensolver.eigenvalues();
+    //Eigen::Map<Eigen::MatrixXd> M(A[0], n, n);
+    //SelfAdjointEigenSolver<Matrix3d> eig(M);
+    //Vector3d eigenvalues = eig.eigenvalues();
+    //cout << "Eigenvalues are: ";
+    ///*for (int i = 0; i < n; i++)
+    //    cout << eigenvalues[i] << ", ";
+    //cout << endl;*/
+    //for (int i = 0; i < n; i++)
+    //    if (eigenvalues[i] <= 0)
+    //        return false;
+    //return true;
+
+    double* eigenvalues = (double*)calloc(n, sizeof(double));
+    double* P = (double*)calloc(n+1, sizeof(double));
+    P[0] = -1;
+    for (int i = 0; i < n; i++) {
+        P[i + 1] = 0;
+        for (int j = 0; j < n; j++) {
+            P[i + 1] -= A[j][i] * A[j][i];
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        eigenvalues[i] = 0;
+        for (int j = 0; j < i + 1; j++) {
+            eigenvalues[i] += P[j] * pow(eigenvalues[i], i - j);
+        }
+    }
+    for (int i = 0; i < n; i++)
+        cout << eigenvalues[i] << ", ";
+    bool povrat = true;
     for (int i = 0; i < n; i++)
         if (eigenvalues[i] <= 0)
-            return false;
-    return true;
+            povrat = false;
+    
+    free(eigenvalues);
+    free(P);
+    return povrat;
 }
 
 void cholesky1_sequential(double** A, double** L, int n) {
@@ -384,14 +414,168 @@ void test_cholesky2(int n) {
 }
 // ------------------------------------------------------------------ //
 
+// ------------------------------ LDLT ------------------------------ //
+
+double* generate_help_array(int n) {
+    double* l = (double*)calloc(n, sizeof(double));
+    for (int i = 0; i < n; i++)
+        l[i] = 0;
+    return l;
+}
+
+double* ldlt_sequential(double** A, const int n) {
+    double* l = generate_help_array(n);
+    for (int i = 0; i < n; i++)
+    {
+        // Get the ith column of the matrix
+        double* a = generate_help_array(n);
+        for (int j = 0; j < n; j++)
+            a[j] = A[j][i];
+
+        // Compute the ith element of the diagonal of L
+        double sum = 0;
+        for (int j = 0; j < i; j++)
+            sum += l[j] * a[j] * a[j];
+        l[i] = a[i] - sum;
+
+        // Update the rest of the column
+        for (int j = i + 1; j < n; j++)
+            a[j] = (a[j] - (A[j][i] - sum)) / l[i];
+
+        // Update the ith row and column of the matrix
+        for (int j = 0; j < n; j++)
+        {
+            A[j][i] = a[j];
+            A[i][j] = a[j];
+        }
+        free(a);
+    }
+    return l;
+}
+
+double* ldlt_parallel(double** A, const int n) {
+    double* l = (double*)calloc(n, sizeof(double));
+#pragma omp parallel
+    {
+#pragma omp for
+        for (int i = 0; i < n; i++)
+        {
+            // Get the ith column of the matrix
+            double* a = (double*)calloc(n, sizeof(double));
+            for (int j = 0; j < n; j++)
+                a[j] = A[j][i];
+
+            // Compute the ith element of the diagonal of L
+            double sum = 0;
+            for (int j = 0; j < i; j++)
+                sum += l[j] * a[j] * a[j];
+            l[i] = a[i] - sum;
+
+            // Update the rest of the column
+            for (int j = i + 1; j < n; j++)
+                a[j] = (a[j] - (A[j][i] - sum)) / l[i];
+
+            // Update the ith row and column of the matrix
+            for (int j = 0; j < n; j++)
+            {
+                A[j][i] = a[j];
+                A[i][j] = a[j];
+            }
+            free(a);
+        }
+    }
+    return l;
+}
+
+void test_ldlt1(int n) {
+    double** A = generateMatrixA(n);
+    makeSymmetric(A, n);
+    printMatrix(A, 10);
+    {
+        Timer t("LDLT SEQUENTIAL");
+        auto l = ldlt_sequential(A, n);
+        free(l);
+    }
+    printMatrix(A, 10);
+    /*{
+        Timer t("LDLT PARALLEL");
+        auto l = ldlt_parallel(A, n);
+        free(l);
+    }*/
+    free(A);
+}
+
+// ------------------------------------------------------------------ //
+
+void test() {
+    int x = 3;
+    double** A = (double**)malloc(sizeof(double*) * x);
+    for (int i = 0; i < x; i++) {
+        A[i] = (double*)malloc(sizeof(double) * x);
+    }
+    A[0][0] = 1;
+    A[0][1] = 2;
+    A[0][2] = 3;
+    A[1][0] = 4;
+    A[1][1] = 5;
+    A[1][2] = 6;
+    A[2][0] = 7;
+    A[2][1] = 8;
+    A[2][2] = 9;
+
+    double** L = (double**)malloc(sizeof(double*) * x);
+    for (int i = 0; i < x; i++) {
+        L[i] = (double*)malloc(sizeof(double) * x);
+    }
+
+    L[0][0] = 0;
+    L[0][1] = 0;
+    L[0][2] = 0;
+    L[1][0] = 0;
+    L[1][1] = 0;
+    L[1][2] = 0;
+    L[2][0] = 0;
+    L[2][1] = 0;
+    L[2][2] = 0;
+
+    printMatrix(A, x);
+    cout << "Matrix is " << (is_positive_definite(A, x) ? "" : "not") << " positive definite" << endl;
+    cholesky1_sequential(A, L, x);
+    printMatrix(L, x);
+    deallocateMemory(A,x);
+    deallocateMemory(L,x);
+}
+
+void test2() {
+    // Define a 3x3 matrix
+    //double A[3][3] = { {1, 2, 3}, {4, 5, 6}, {7, 8, 9} };
+
+    Eigen::Matrix<double, 3, 3> A; // declare a real (double) 2x2 matrix
+    A << 25,15,-5,15,18,0,-5,0,11; // defined the matrix A
+
+    Eigen::EigenSolver<Eigen::Matrix<double, 3, 3> > s(A); // the instance s(A) includes the eigensystem
+    std::cout << A << std::endl;
+    std::cout << "eigenvalues:" << std::endl;
+    std::cout << s.eigenvalues()(0) << std::endl;
+    std::cout << s.eigenvalues()(1) << std::endl;
+    std::cout << s.eigenvalues()(2) << std::endl;
+    std::cout << s.eigenvalues()(2).real() << std::endl;
+    std::cout << "eigenvectors=" << std::endl;
+    std::cout << s.eigenvectors() << std::endl;
+}
+
 int main()
 {
-    cout << "Insert number of rows for matrix: ";
-    int broj;
-    std::cin >> broj;
-    test_cholesky1(broj);
+    //cout << "Insert number of rows for matrix: ";
+    //int broj;
+    //std::cin >> broj;
+    //test_cholesky1(broj);
     //test_cholesky2(broj);
     //crout_test(broj);
+    //test_ldlt1(broj);
+
+    //test();
+    test2();
     return 0;
 
 }
