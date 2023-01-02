@@ -418,89 +418,81 @@ double* generate_help_array(int n) {
     return l;
 }
 
-double* ldlt_sequential(double** A, const int n) {
-    double* l = generate_help_array(n);
-    for (int i = 0; i < n; i++)
-    {
-        // Get the ith column of the matrix
-        double* a = generate_help_array(n);
-        for (int j = 0; j < n; j++)
-            a[j] = A[j][i];
-
-        // Compute the ith element of the diagonal of L
-        double sum = 0;
-        for (int j = 0; j < i; j++)
-            sum += l[j] * a[j] * a[j];
-        l[i] = a[i] - sum;
-
-        // Update the rest of the column
-        for (int j = i + 1; j < n; j++)
-            a[j] = (a[j] - (A[j][i] - sum)) / l[i];
-
-        // Update the ith row and column of the matrix
-        for (int j = 0; j < n; j++)
-        {
-            A[j][i] = a[j];
-            A[i][j] = a[j];
+void ldlt_sequential(double** A, const int n) {
+    double* w = generate_help_array(n);
+    for (int i = 0; i < n; i++) {
+        double s;
+        for (int j = 0; j <= i - 1; j++) {
+            s = A[i][j];
+            for (int k = 0; k <= j - 1; k++) {
+                s -= w[k] * A[j][k];
+            }
+            w[j] = s;
+            A[i][j] = (double)s / A[j][j];
         }
-        free(a);
+        s = A[i][i];
+        for (int k = 0; k <= i-1 ; k++) {
+            s -= w[k] * A[i][k];
+        }
+        A[i][i] = s;
     }
-    return l;
+    free(w);
 }
 
 double* ldlt_parallel(double** A, const int n) {
-    double* l = (double*)calloc(n, sizeof(double));
-#pragma omp parallel
-    {
-#pragma omp for
-        for (int i = 0; i < n; i++)
-        {
-            // Get the ith column of the matrix
-            double* a = (double*)calloc(n, sizeof(double));
-            for (int j = 0; j < n; j++)
-                a[j] = A[j][i];
-
-            // Compute the ith element of the diagonal of L
-            double sum = 0;
-            for (int j = 0; j < i; j++)
-                sum += l[j] * a[j] * a[j];
-            l[i] = a[i] - sum;
-
-            // Update the rest of the column
-            for (int j = i + 1; j < n; j++)
-                a[j] = (a[j] - (A[j][i] - sum)) / l[i];
-
-            // Update the ith row and column of the matrix
-            for (int j = 0; j < n; j++)
-            {
-                A[j][i] = a[j];
-                A[i][j] = a[j];
+    double* w = generate_help_array(n);
+#pragma omp parallel for num_threads(4)
+    for (int i = 0; i < n; i++) {
+        double s;
+        for (int j = 0; j <= i - 1; j++) {
+            s = A[i][j];
+            for (int k = 0; k <= j - 1; k++) {
+                s -= w[k] * A[j][k];
             }
-            free(a);
+            w[j] = s;
+            A[i][j] = (double)s / A[j][j];
         }
+        s = A[i][i];
+        for (int k = 0; k <= i - 1; k++) {
+            s -= w[k] * A[i][k];
+        }
+        A[i][i] = s;
     }
-    return l;
+    free(w);
 }
 
 void test_ldlt1(int n) {
     double** A = generateMatrixA(n);
     makeSymmetric(A, n);
-    printMatrix(A, 10);
     {
         Timer t("LDLT SEQUENTIAL");
-        auto l = ldlt_sequential(A, n);
-        free(l);
+        ldlt_sequential(A, n);
     }
-    printMatrix(A, 10);
-    /*{
+    {
         Timer t("LDLT PARALLEL");
-        auto l = ldlt_parallel(A, n);
-        free(l);
-    }*/
+        ldlt_parallel(A, n);
+    }
     free(A);
 }
 
 // ------------------------------------------------------------------ //
+
+void test_ldlt(int n) {
+    double** A = generateMatrixLU(n);
+    A[0][0] = 25;
+    A[0][1] = 15;
+    A[0][2] = -5;
+    A[1][0] = 15;
+    A[1][1] = 18;
+    A[1][2] = 0;
+    A[2][0] = -5;
+    A[2][1] = 0;
+    A[2][2] = 11;
+
+    printMatrix(A, n);
+    ldlt_sequential(A, n);
+    printMatrix(A, n);
+}
 
 int main()
 {
@@ -510,11 +502,8 @@ int main()
     //test_cholesky1(broj);
     //test_cholesky2(broj);
     //crout_test(broj);
-    //test_ldlt1(broj);
+    test_ldlt1(broj);
 
-    //test();
-    //test3();
-    //test_fine(3); 
     return 0;
 
 }
