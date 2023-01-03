@@ -12,7 +12,7 @@ using namespace Eigen;
 
 const int NUM_OF_TRIES = 3;
 const int MATRIX_SIZE = 1000;
-const int NUM_OF_THREADS = 2;
+const int NUM_OF_THREADS = 4;
 
 class Timer {
     typedef std::chrono::high_resolution_clock clock_;
@@ -118,11 +118,11 @@ int crout_sequential(double** A, double** L, double** U, int n) {
 int crout_parallel(double** A, double** L, double** U, int n) {
     int i, j, k;
     double sum = 0;
-#pragma omp parallel for
+#pragma omp parallel for 
     for (i = 0; i < n; i++) {
         U[i][i] = 1;
     }
-#pragma omp parallel for private(i,j,k,sum) schedule(static)
+#pragma omp parallel for private(i,j,k,sum) schedule(static) 
     for (j = 0; j < n; j++) {
         if (j == n - 1)
             std::cout << "Number of threads being used: " << omp_get_num_threads() << std::endl;
@@ -148,76 +148,52 @@ int crout_parallel(double** A, double** L, double** U, int n) {
     return 1;
 }
 
-void crout_sequential_test(double** A, int n) {
-    double** L = generateMatrixLU(n);
-    double** U = generateMatrixLU(n);
-
-    {
-        Timer t("SEQUENTIAL");
-        int rj = crout_sequential(A, L, U, n);
-        if (rj) {
-            std::cout << "Successful!" << std::endl;
-        }
-        else {
-            std::cout << "Matrix is singular!" << std::endl;
-        }
-    }
-
-    deallocateMemory(L, n);
-    deallocateMemory(U, n);
-}
-
-void crout_parallel_test(double** A, int n) {
-    double** L = generateMatrixLU(n);
-    double** U = generateMatrixLU(n);
-
-    {
-        Timer t("STATIC CROUT 1");
-        crout_parallel(A, L, U, n);
-    }
-
-    deallocateMemory(L, n);
-    deallocateMemory(U, n);
-}
-
 void crout_test(int n) {
     double** A = generateMatrixA(n);
 
-    crout_sequential_test(A, n);
+    std::cout << std::endl << "Crout test" << endl;
 
-    std::cout << std::endl;
 
-    std::cout << "Maximum number of threads on current device: " << omp_get_max_threads() << std::endl;
-    std::cout << "Matrix size: " << n << "x" << n << std::endl;
+    // SEQUENTIAL TEST
+    {
+        double** L = generateMatrixLU(n);
+        double** U = generateMatrixLU(n);
 
-    omp_set_dynamic(0);
-    omp_set_num_threads(NUM_OF_THREADS);
+        {
+            Timer t("SEQUENTIAL");
+            int rj = crout_sequential(A, L, U, n);
+            if (rj) {
+                std::cout << "Successful!" << std::endl;
+            }
+            else {
+                std::cout << "Matrix is singular!" << std::endl;
+            }
+        }
 
-    for (int i = 0; i < NUM_OF_TRIES; i++) {
-
-        std::cout << "TRY " << i + 1 << ":" << std::endl;
-        crout_parallel_test(A, n);
-        std::cout << std::endl;
+        deallocateMemory(L, n);
+        deallocateMemory(U, n);
     }
 
-    omp_set_num_threads(NUM_OF_THREADS * 2);
-
     for (int i = 0; i < NUM_OF_TRIES; i++) {
+        for (int j = 2; j <= 8; j *= 2) {
+            omp_set_dynamic(0);
+            omp_set_num_threads(j);
+            // PARALLEL TEST
+            {
+                double** L = generateMatrixLU(n);
+                double** U = generateMatrixLU(n);
 
-        std::cout << "TRY " << i + 1 << ":" << std::endl;
-        crout_parallel_test(A, n);
-        std::cout << std::endl;
+                {
+                    Timer t("STATIC CROUT 1");
+                    crout_parallel(A, L, U, n);
+                }
+
+                deallocateMemory(L, n);
+                deallocateMemory(U, n);
+            }
+            
+        }
     }
-
-    omp_set_num_threads(NUM_OF_THREADS * 4);
-
-    for (int i = 0; i < NUM_OF_TRIES; i++) {
-
-        std::cout << "TRY " << i + 1 << ":" << std::endl;
-        crout_parallel_test(A, n);
-        std::cout << std::endl;
-    }
-
     deallocateMemory(A, n);
 }
 
@@ -274,13 +250,14 @@ void cholesky1_sequential(double** A, double** L, int n) {
 }
 
 void cholesky1_parallel(double** A, double** L, int n) {
-#pragma omp parallel for num_threads(4)
-    for (int i = 0; i < n; i++) {
+    int i, j, k;
+#pragma omp parallel for schedule(static) //private(i,j,k)
+    for (i = 0; i < n; i++) {
         if (i == n-1)
             std::cout << "Number of threads being used: " << omp_get_num_threads() << std::endl;
-        for (int j = 0; j <= i; j++) {
+        for (j = 0; j <= i; j++) {
             double s = 0;
-            for (int k = 0; k < j; k++) {
+            for (k = 0; k < j; k++) {
                 s += L[i][k] * L[j][k];
             }
             L[i][j] = (i == j) ? sqrt(A[i][i] - s) : (1.0 / L[j][j] * (A[i][j] - s));
@@ -291,23 +268,32 @@ void cholesky1_parallel(double** A, double** L, int n) {
 void test_cholesky1 (int n) {
     double** A = generateMatrixA(n);
     double** L_S = generateMatrixLU(n);
-    double** L_P = generateMatrixLU(n);
     makeSymmetric(A, n);
-    {
-        Timer t("Check if matrix is positive definite");
-        cout << "Matrix is" << (is_positive_definite(A, n) ? " " : " not ") << "positive definite" << endl;
-    }
+    //{
+    //    Timer t("Check if matrix is positive definite");
+    //    cout << "Matrix is" << (is_positive_definite(A, n) ? " " : " not ") << "positive definite" << endl;
+    //}
+    cout << endl << "Cholesky 1 test" << endl;
+    // SEQUENTIAL TEST
     {
         Timer t("CHOLESKY 1 SEQUENTIAL");
         cholesky1_sequential(A, L_S, n);
+        deallocateMemory(L_S,n);
     }
-    {
-        Timer t("CHOLESKY 1 PARALLEL");
-        cholesky1_parallel(A, L_P, n);
+    // PARALLEL TEST
+    for (int i = 0; i < NUM_OF_TRIES; i++) {
+        for (int j = 2; j <= 8; j *= 2) {
+            double** L_P = generateMatrixLU(n);
+            omp_set_dynamic(0);
+            omp_set_num_threads(j);
+            {
+                Timer t("CHOLESKY 1 PARALLEL");
+                cholesky1_parallel(A, L_P, n);
+                deallocateMemory(L_P,n);
+            }
+        }
     }
-    free(A);
-    free(L_S);
-    free(L_P);
+    deallocateMemory(A,n);
 }
 
 double* generate_matrix(int n) {
@@ -352,14 +338,15 @@ double* cholesky2_parallel(double* A, int n) {
     double* L = (double*)malloc(n * n * sizeof(double));
     if (L == NULL)
         exit(EXIT_FAILURE);
-
-    for (int j = 0; j < n; j++) {
+    int j;
+#pragma omp parallel for schedule(static) //private(j)
+    for (j = 0; j < n; j++) {
         double s = 0;
         for (int k = 0; k < j; k++) {
             s += L[j * n + k] * L[j * n + k];
         }
         L[j * n + j] = sqrt(A[j * n + j] - s);
-#pragma omp parallel for num_threads(4)
+
         for (int i = j + 1; i < n; i++) {
             double s = 0;
             for (int k = 0; k < j; k++) {
@@ -391,19 +378,30 @@ double* cholesky2_sequential(double* A, int n) {
 void test_cholesky2(int n) {
     double* A = generate_matrix(n);
     makeSymmetric2(A, n);
-    {
+    /*{
         Timer t("Check if matrix is positive definite");
         cout << "Matrix is" << (is_positive_definite2(A, n) ? " " : " not ") << "positive definite" << endl;
-    }
+    }*/
+
+    cout << endl << "Cholesky 2 test" << endl;
+
+    // SEQUENTIAL TEST
     {
         Timer t("CHOLESKY 2 SEQUENTIAL");
         auto l = cholesky2_sequential(A, n);
         free(l);
     }
-    {
-        Timer t("CHOLESKY 2 PARALLEL");
-        auto l = cholesky2_parallel(A, n);
-        free(l);
+    // PARALLEL TEST
+    for (int i = 0; i < NUM_OF_TRIES; i++) {
+        for (int j = 2; j <= 8; j *= 2) {
+            omp_set_dynamic(0);
+            omp_set_num_threads(j);
+            {
+                Timer t("CHOLESKY 2 PARALLEL");
+                auto l = cholesky2_parallel(A, n);
+                free(l);
+            }
+        }
     }
     free(A);
 }
@@ -441,7 +439,7 @@ void ldlt_sequential(double** A, const int n) {
 
 double* ldlt_parallel(double** A, const int n) {
     double* w = generate_help_array(n);
-#pragma omp parallel for num_threads(4)
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; i++) {
         double s;
         for (int j = 0; j <= i - 1; j++) {
@@ -461,48 +459,58 @@ double* ldlt_parallel(double** A, const int n) {
     free(w);
 }
 
+double** copy_matrix(double** A, int n) {
+    double** help = generateMatrixLU(n);
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            help[i][j] = A[i][j];
+        }
+    }
+    return help;
+}
+
 void test_ldlt1(int n) {
     double** A = generateMatrixA(n);
     makeSymmetric(A, n);
+
+    cout << endl << "LDLT test" << endl;
+    // SEQUENTIAL TEST
     {
         Timer t("LDLT SEQUENTIAL");
         ldlt_sequential(A, n);
     }
-    {
-        Timer t("LDLT PARALLEL");
-        ldlt_parallel(A, n);
+    
+    // PARALLEL TEST
+    for (int i = 0; i < NUM_OF_TRIES; i++) {
+        for (int j = 2; j <= 8; j *= 2) {
+            double** help = copy_matrix(A,n);
+            omp_set_dynamic(0);
+            omp_set_num_threads(j);
+            {
+                Timer t("LDLT PARALLEL");
+                ldlt_parallel(A, n);
+            }
+            deallocateMemory(help, n);
+        }
     }
-    free(A);
+    deallocateMemory(A,n);
 }
 
 // ------------------------------------------------------------------ //
 
-void test_ldlt(int n) {
-    double** A = generateMatrixLU(n);
-    A[0][0] = 25;
-    A[0][1] = 15;
-    A[0][2] = -5;
-    A[1][0] = 15;
-    A[1][1] = 18;
-    A[1][2] = 0;
-    A[2][0] = -5;
-    A[2][1] = 0;
-    A[2][2] = 11;
-
-    printMatrix(A, n);
-    ldlt_sequential(A, n);
-    printMatrix(A, n);
-}
-
 int main()
 {
-    cout << "Insert number of rows for matrix: ";
-    int broj;
-    std::cin >> broj;
-    //test_cholesky1(broj);
-    //test_cholesky2(broj);
-    //crout_test(broj);
-    test_ldlt1(broj);
+    for (;;) {
+        cout << "Insert number of rows for matrix: ";
+        int broj;
+        std::cin >> broj;
+        if (broj == 0) break;
+        test_cholesky1(broj);
+        test_cholesky2(broj);
+        crout_test(broj);
+        test_ldlt1(broj);
+    }
+    
 
     return 0;
 
